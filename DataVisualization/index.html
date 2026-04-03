@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Paris 2024 - Olympic Torch Relay Route</title>
+
+    <script src="js/d3.v7.min.js"></script>
+    <script src="js/topojson.v3.min.js"></script>
+
+    <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;600;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --c-pink: #E8C4D8;
+            --c-lavender: #DCD0FF;
+            --bg-start: #030308;
+        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        
+        body {
+            font-family: 'Montserrat', sans-serif;
+            background-color: var(--bg-start);
+            color: white;
+            overflow-x: hidden;
+            /* 基础页面过渡属性 */
+            transition: opacity 0.6s ease, filter 0.6s ease, transform 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* --- index.html 中的 CSS 修改 --- */
+        body.page-exit {
+        opacity: 0;
+        filter: blur(20px);
+        transform: scale(1.15);
+        /* 强制背景为黑色，且不添加任何 transition 延迟 */
+        background: #030308 !important; 
+        pointer-events: none;
+    
+        /* 确保 transition 列表里只有我们需要的属性，不包含 background */
+        transition: opacity 0.4s ease, filter 0.4s ease, transform 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* 固定顶部标题 */
+        .fixed-header {
+            position: fixed; top: 0; left: 0; width: 100%; padding: 30px 0;
+            text-align: center; z-index: 20;
+            background: linear-gradient(to bottom, rgba(3, 3, 8, 0.5) 0%, rgba(3, 3, 8, 0) 100%);
+            pointer-events: none;
+        }
+        .header-label { font-size: 0.7rem; font-weight: 800; letter-spacing: 6px; color: var(--c-lavender); text-transform: uppercase; margin-bottom: 5px; }
+        .header-title { font-family: 'Playfair Display', serif; font-size: 1.8rem; letter-spacing: 1px; margin-bottom: 8px; color: #ffffff; }
+        .header-note { font-size: 0.65rem; font-weight: 400; letter-spacing: 1px; opacity: 0.7; font-style: italic; color: #ffffff; }
+        .header-underline { width: 40px; height: 1.5px; background: var(--c-pink); margin: 12px auto 0; border-radius: 2px; box-shadow: 0 0 10px var(--c-pink); }
+
+        /* 地图容器 */
+        .map-container { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 1; }
+        #map-svg { width: 100%; height: 100%; }
+
+        /* 滚动内容布局 */
+        .scroll-content { position: relative; z-index: 2; }
+        .scroll-section { height: 100vh; display: flex; align-items: center; padding-left: 8%; }
+        .scroll-section.final-stage { justify-content: center; padding-left: 0; }
+
+        /* 站点卡片样式 */
+        .station-card {
+            background: rgba(255, 255, 255, 0.08); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 20px; padding: 30px; max-width: 350px;
+            opacity: 0; transform: translateX(-30px); transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+        .station-card.visible { opacity: 1; transform: translateX(0); }
+
+        .station-number { font-size: 0.75rem; color: var(--c-lavender); font-weight: 800; letter-spacing: 4px; margin-bottom: 12px; }
+        .station-title { font-size: 1.8rem; font-family: 'Playfair Display', serif; margin-bottom: 4px; }
+        .station-date { font-size: 0.85rem; color: var(--c-pink); margin-bottom: 12px; font-weight: 600; text-transform: uppercase; }
+        .station-description { font-size: 0.85rem; line-height: 1.7; color: rgba(255,255,255,0.7); }
+
+        /* 带图标的卡片样式 */
+        .station-card.has-icon {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+            padding-right: 20px;
+            max-width: 420px;
+        }
+        .card-content {
+            flex: 1;
+        }
+        .city-icon {
+            width: 90px;
+            height: 90px;
+            object-fit: contain;
+            opacity: 0;
+            transform: scale(0.8) rotate(-5deg);
+            transition: all 0.6s cubic-bezier(0.16, 1, 0.3, 1) 0.4s;
+            flex-shrink: 0;
+        }
+        .station-card.visible .city-icon {
+            opacity: 1;
+            transform: scale(1) rotate(0deg);
+        }
+        /* Paris特殊样式 - 悬浮动画 */
+        .city-icon.paris-icon {
+            width: 100px;
+            height: 100px;
+            filter: drop-shadow(0 0 12px rgba(232, 196, 216, 0.5));
+            animation: float 3s ease-in-out infinite;
+        }
+        @keyframes float {
+            0%, 100% { transform: translateY(0) rotate(0deg); }
+            50% { transform: translateY(-6px) rotate(2deg); }
+        }
+
+        /* Start 按钮样式 */
+        #start-btn {
+            position: fixed; bottom: 50px; left: 50%; transform: translate(-50%, 80px);
+            width: 320px; height: 60px;
+            background: rgba(255, 255, 255, 0.05); backdrop-filter: blur(15px);
+            border: 1px solid rgba(255, 255, 255, 0.3); border-radius: 50px;
+            color: white; font-weight: 700; letter-spacing: 2px; cursor: pointer;
+            z-index: 10; opacity: 0; transition: all 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+            overflow: visible; display: flex; justify-content: center; align-items: center;
+        }
+        #start-btn.visible { opacity: 1; transform: translate(-50%, 0); }
+        #start-btn:hover { background: white; color: #2D1B69; box-shadow: 0 0 40px rgba(255, 255, 255, 0.4); }
+
+        .btn-content { position: relative; z-index: 2; }
+        #iris-svg { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 320px; height: 180px; pointer-events: none; z-index: 1; overflow: visible; }
+        .iris-path { fill: none; stroke-width: 2.5; stroke-linecap: round; opacity: 0.9; mix-blend-mode: screen; }
+
+        /* 地图元素样式 */
+        .country { fill: rgba(15, 15, 30, 0.8); stroke: rgba(255,255,255,0.05); stroke-width: 0.6; }
+        .route-active { fill: none; stroke: url(#route-grad); stroke-width: 3; stroke-linecap: round; filter: url(#line-glow); }
+
+        /* 要求1修改：滚动提示样式 */
+        .scroll-hint {
+            position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+            z-index: 25; display: flex; flex-direction: column; align-items: center;
+            opacity: 0; transition: opacity 0.5s ease; pointer-events: none;
+        }
+        .scroll-hint.show { opacity: 1; } /* 靠 JS 添加此类来显示 */
+
+        .scroll-hint-text {
+            font-size: 0.8rem; color: rgba(255, 255, 255, 0.8);
+            margin-bottom: 8px; letter-spacing: 1px;
+        }
+        .scroll-arrow {
+            width: 30px; height: 50px; border: 2px solid rgba(255, 255, 255, 0.5);
+            border-radius: 20px; position: relative; animation: scrollBounce 2s ease-in-out infinite;
+        }
+        .scroll-arrow::before {
+            content: ''; position: absolute; top: 8px; left: 50%; transform: translateX(-50%);
+            width: 6px; height: 6px; background: white; border-radius: 50%;
+            animation: scrollDot 2s ease-in-out infinite;
+        }
+
+        @keyframes scrollBounce {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(10px); }
+        }
+        @keyframes scrollDot {
+            0% { opacity: 1; top: 8px; }
+            100% { opacity: 0; top: 30px; }
+        }
+    </style>
+</head>
+<body>
+
+    <header class="fixed-header">
+        <div class="header-label">PARIS 2024</div>
+        <h1 class="header-title">Olympic Torch Relay Route</h1>
+        <div class="header-note">* Key stages shown; does not include all cities.</div>
+        <div class="header-underline"></div>
+    </header>
+
+    <div class="map-container">
+        <svg id="map-svg">
+            <defs>
+                <filter id="line-glow"><feGaussianBlur stdDeviation="3" result="blur"/><feComposite in="SourceGraphic" in2="blur" operator="over"/></filter>
+                <filter id="torch-glow"><feGaussianBlur stdDeviation="6" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                <linearGradient id="route-grad" x1="0%" y1="0%" x2="100%" y2="0%">
+                    <stop offset="0%" stop-color="#E8C4D8" /><stop offset="100%" stop-color="#A0C4FF" />
+                </linearGradient>
+                <linearGradient id="iris-grad" x1="0%" y1="100%" x2="0%" y2="0%">
+                    <stop offset="0%" stop-color="#FFD700" /><stop offset="50%" stop-color="#E8C4D8" /><stop offset="100%" stop-color="#A0C4FF" />
+                </linearGradient>
+                <filter id="iris-bloom-glow" x="-50%" y="-50%" width="200%" height="200%">
+                    <feGaussianBlur in="SourceGraphic" stdDeviation="4" result="blur" />
+                    <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+                    <feGaussianBlur stdDeviation="2" result="softGlow"/>
+                    <feMerge><feMergeNode in="softGlow"/><feMergeNode in="SourceGraphic"/></feMerge>
+                </filter>
+            </defs>
+        </svg>
+    </div>
+
+    <div class="scroll-hint" id="scroll-hint">
+        <div class="scroll-hint-text">Scroll to explore</div>
+        <div class="scroll-arrow"></div>
+    </div>
+
+    <div id="scroll-wrapper" class="scroll-content"></div>
+    
+    <button id="start-btn">
+        <span class="btn-content">START OLYMPIC JOURNEY</span>
+    </button>
+
+    <script src="js/torch_relay_scroll.js"></script>
+</body>
+</html>

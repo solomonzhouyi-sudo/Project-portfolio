@@ -1,0 +1,1035 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Paris 2024 - Events Schedule & Medals</title>
+
+  <script src="../js/d3.v7.min.js"></script>
+  <script src="../js/topojson.v3.min.js"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@300;600;800&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+
+  <style>
+    /* ==================== 全局变量 ==================== */
+    :root{
+      --c-pink: #E8C4D8;
+      --c-lavender: #DCD0FF;
+      --c-aqua: #7FD6D9;
+      --c-gold: #FFD700;
+      --c-deep: #06182A;
+      --c-indigo: #2D1B69;
+
+      --bg-0: #030308;
+      --bg-1: #071124;
+
+      --glass: rgba(255,255,255,0.08);
+      --glass-2: rgba(255,255,255,0.06);
+      --stroke: rgba(255,255,255,0.12);
+      --text-dim: rgba(255,255,255,0.72);
+
+      /* Age-viz palette */
+      --male-a: rgba(127,214,217,0.30);
+      --male-b: rgba(80,220,220,0.85);
+      --female-a: rgba(232,196,216,0.30);
+      --female-b: rgba(255,130,180,0.85);
+      --medal-a: rgba(220,208,255,0.80);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Montserrat', sans-serif;
+      color: #fff;
+      background: var(--bg-0);
+      overflow-y: auto;
+      overflow-x: hidden;
+      scroll-behavior: smooth;
+    }
+
+    /* 页面进入动画 */
+    body.page-enter { opacity: 0; transform: scale(1.15); filter: blur(20px); overflow: hidden; }
+    body.page-enter-active { 
+      opacity: 1; transform: none; filter: none; 
+      transition: opacity 0.4s ease-out, transform 0.4s cubic-bezier(0.16, 1, 0.3, 1), filter 0.4s ease-out; 
+    }
+    body.page-exit{ opacity: 0; filter: blur(8px); }
+
+    /* ==================== 热力图部分 ==================== */
+    #schedule-section {
+      height: 100vh;
+      width: 100%;
+      position: relative;
+      background: 
+        radial-gradient(ellipse 80% 50% at 20% 30%, rgba(45, 27, 105, 0.15) 0%, transparent 50%),
+        radial-gradient(ellipse 60% 40% at 80% 70%, rgba(160, 196, 255, 0.08) 0%, transparent 50%),
+        radial-gradient(ellipse 100% 80% at 50% 100%, rgba(232, 196, 216, 0.05) 0%, transparent 40%),
+        linear-gradient(180deg, #030308 0%, #0a0a12 50%, #030308 100%);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    #schedule-section::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-image: 
+        linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px);
+      background-size: 50px 50px;
+      pointer-events: none;
+      opacity: 0.6;
+    }
+
+    .schedule-header {
+      padding: 28px 0 20px;
+      text-align: center;
+      z-index: 10;
+      background: linear-gradient(to bottom, rgba(3,3,8,0.95) 0%, rgba(3,3,8,0) 100%);
+      flex-shrink: 0;
+      position: relative;
+    }
+    
+    .back-btn {
+      position: absolute;
+      top: 28px;
+      right: 40px;
+      z-index: 20;
+      pointer-events: all;
+    }
+    
+    .schedule-label {
+      font-size: 0.7rem;
+      font-weight: 800;
+      letter-spacing: 6px;
+      color: var(--c-lavender);
+      text-transform: uppercase;
+      margin-bottom: 8px;
+      opacity: 0.9;
+    }
+    .schedule-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.8rem;
+      letter-spacing: 1px;
+      color: #ffffff;
+      text-shadow: 0 2px 30px rgba(160, 196, 255, 0.15);
+    }
+
+    .schedule-content {
+      flex: 1;
+      overflow: hidden;
+      padding: 10px 40px 35px;
+      display: flex;
+      gap: 24px;
+      justify-content: center;
+      position: relative;
+      z-index: 1;
+    }
+
+    .heatmap-container {
+      flex: 1;
+      max-width: 920px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.05) 0%, rgba(255,255,255,0.015) 100%);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      padding: 28px;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.03) inset;
+      position: relative;
+      overflow: hidden;
+    }
+    
+    .heatmap-container::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 20%; right: 20%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    }
+    
+    .heatmap-scroll-wrapper {
+      flex: 1;
+      overflow: auto;
+      margin: 14px 0 0 0;
+      padding-right: 12px;
+    }
+    
+    .heatmap-scroll-wrapper::-webkit-scrollbar { width: 5px; height: 5px; }
+    .heatmap-scroll-wrapper::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 10px; }
+    .heatmap-scroll-wrapper::-webkit-scrollbar-thumb { 
+      background: linear-gradient(180deg, rgba(159,122,234,0.4), rgba(232,196,216,0.4)); 
+      border-radius: 10px; 
+    }
+
+    .heatmap-header { margin-bottom: 16px; padding-bottom: 16px; border-bottom: 1px solid rgba(255,255,255,0.06); }
+    .heatmap-title { font-family: 'Playfair Display', serif; font-size: 1.3rem; margin-bottom: 6px; color: #fff; }
+    .heatmap-subtitle { font-size: 0.8rem; color: rgba(255,255,255,0.45); font-weight: 400; }
+
+    #heatmap-svg { width: 100%; overflow: visible; }
+
+    .heatmap-cell {
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      stroke: rgba(255,255,255,0.03);
+      stroke-width: 0.5px;
+    }
+    .heatmap-cell.has-data { opacity: 0.92; }
+    .heatmap-cell:hover {
+      stroke: rgba(255,255,255,0.9) !important;
+      stroke-width: 2px !important;
+      opacity: 1 !important;
+      filter: brightness(1.15) saturate(1.1);
+    }
+
+    .heatmap-legend {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      margin-top: 18px;
+      font-size: 0.7rem;
+      color: rgba(255,255,255,0.45);
+      padding-top: 18px;
+      border-top: 1px solid rgba(255,255,255,0.05);
+    }
+    .legend-gradient {
+      width: 140px; height: 6px; border-radius: 3px;
+      background: linear-gradient(to right, rgba(73, 57, 128, 0.9), #9F7AEA, #E9D8FD);
+      box-shadow: 0 0 15px rgba(159, 122, 234, 0.25);
+    }
+
+    .info-panel {
+      width: 320px;
+      background: linear-gradient(145deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 24px;
+      padding: 26px;
+      height: 100%;
+      overflow-y: auto;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255,255,255,0.03) inset;
+      position: relative;
+    }
+    .info-panel::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 20%; right: 20%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    }
+    .info-panel::-webkit-scrollbar { width: 5px; }
+    .info-panel::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); border-radius: 10px; }
+    .info-panel::-webkit-scrollbar-thumb { 
+      background: linear-gradient(180deg, rgba(159,122,234,0.4), rgba(232,196,216,0.4)); 
+      border-radius: 10px; 
+    }
+
+    .info-title {
+      font-family: 'Playfair Display', serif;
+      font-size: 1.2rem;
+      margin-bottom: 22px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      color: #fff;
+    }
+    .info-title::after {
+      content: '';
+      display: block;
+      width: 40px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--c-lavender), transparent);
+      margin-top: 12px;
+      border-radius: 1px;
+    }
+
+    .stat-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; margin-bottom: 28px; }
+    .stat-box {
+      background: linear-gradient(145deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%);
+      border-radius: 16px;
+      padding: 18px 16px;
+      border: 1px solid rgba(255,255,255,0.06);
+      position: relative;
+      overflow: hidden;
+      transition: all 0.3s ease;
+    }
+    .stat-box::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 15%; right: 15%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.1), transparent);
+    }
+    .stat-box:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+      border-color: rgba(255,255,255,0.12);
+    }
+    .stat-box .stat-label { font-size: 0.68rem; color: rgba(255,255,255,0.5); text-transform: uppercase; letter-spacing: 1.2px; margin-bottom: 8px; }
+    .stat-box .stat-value { font-size: 1.8rem; font-weight: 800; color: #fff; letter-spacing: 0.5px; }
+    .stat-box .stat-value.gold { color: var(--c-gold); text-shadow: 0 0 20px rgba(255, 215, 0, 0.35); }
+
+    .gold-days-section { margin-top: 6px; }
+    .section-header {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--c-lavender);
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      letter-spacing: 0.5px;
+    }
+    .section-header::after {
+      content: '';
+      display: block;
+      width: 30px;
+      height: 2px;
+      background: linear-gradient(90deg, var(--c-pink), transparent);
+      margin-top: 10px;
+      border-radius: 1px;
+    }
+
+    .gold-day-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px;
+      margin-bottom: 10px;
+      background: linear-gradient(135deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0.01) 100%);
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.05);
+      transition: all 0.25s ease;
+    }
+    .gold-day-card:hover {
+      background: linear-gradient(135deg, rgba(255,215,0,0.08) 0%, rgba(255,255,255,0.02) 100%);
+      border-color: rgba(255,215,0,0.15);
+      transform: translateX(4px);
+    }
+    .gold-day-date { font-weight: 600; font-size: 0.9rem; color: rgba(255,255,255,0.9); }
+    .gold-day-count { font-weight: 700; color: var(--c-gold); font-size: 1rem; text-shadow: 0 0 12px rgba(255,215,0,0.35); }
+
+    .schedule-tooltip {
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      background: rgba(15, 15, 25, 0.95);
+      backdrop-filter: blur(16px);
+      border: 1px solid rgba(255,255,255,0.15);
+      border-radius: 14px;
+      padding: 14px 18px;
+      color: #fff;
+      font-size: 0.85rem;
+      opacity: 0;
+      transition: opacity 150ms ease, transform 150ms ease;
+      min-width: 140px;
+      box-shadow: 0 10px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      transform: translateY(5px);
+    }
+    .schedule-tooltip::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 15%; right: 15%;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.15), transparent);
+    }
+    .schedule-tooltip.show { opacity: 1; transform: translateY(0); }
+    .tooltip-date { font-weight: 700; color: var(--c-lavender); margin-bottom: 6px; font-size: 0.9rem; letter-spacing: 0.3px; }
+    .tooltip-count { color: rgba(255,255,255,0.85); line-height: 1.5; }
+
+    /* 热力图滚动提示 */
+    .scroll-hint-schedule {
+      position: absolute;
+      bottom: 25px;
+      right: 40px;
+      z-index: 90;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      opacity: 0.6;
+      transition: opacity 0.5s ease;
+      pointer-events: none;
+    }
+    .scroll-hint-schedule.hide { opacity: 0; }
+    .scroll-hint-text { font-size: 0.65rem; color: rgba(255,255,255,0.6); text-transform: uppercase; letter-spacing: 2px; margin-bottom: 12px; font-weight: 600; }
+    .scroll-mouse { width: 24px; height: 38px; border: 2px solid rgba(255,255,255,0.4); border-radius: 12px; position: relative; }
+    .scroll-wheel { width: 4px; height: 4px; background: #fff; border-radius: 50%; position: absolute; top: 6px; left: 50%; transform: translateX(-50%); animation: scrollWheel 2s cubic-bezier(0.15, 0.41, 0.69, 0.94) infinite; }
+    .scroll-arrow-icon { margin-top: 8px; width: 10px; height: 10px; border-right: 2px solid rgba(255,255,255,0.4); border-bottom: 2px solid rgba(255,255,255,0.4); transform: rotate(45deg); animation: scrollArrow 2s infinite; }
+    @keyframes scrollWheel { 0% { opacity: 1; top: 6px; } 100% { opacity: 0; top: 24px; } }
+    @keyframes scrollArrow { 0%, 100% { opacity: 0.4; transform: rotate(45deg) translate(-2px, -2px); } 50% { opacity: 1; transform: rotate(45deg) translate(0, 0); } }
+
+    /* ==================== 奖牌榜和山峰图部分（队友原版代码） ==================== */
+
+    .topbar{
+      height: 72px;
+      padding: 16px 22px;
+      display:flex;
+      align-items:center;
+      justify-content: space-between;
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 50;
+      background: linear-gradient(to bottom, rgba(3,3,8,0.75) 0%, rgba(3,3,8,0) 100%);
+      pointer-events: auto;
+      opacity: 0;
+      transform: translateY(-20px);
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+    .topbar.visible{
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .brand-kicker{
+      font-weight: 800;
+      letter-spacing: 6px;
+      font-size: 0.70rem;
+      color: var(--c-lavender);
+    }
+    .brand-title{
+      font-family: 'Playfair Display', serif;
+      font-size: 1.25rem;
+      margin-top: 2px;
+    }
+
+    .ghost-btn{
+      border: 1px solid var(--stroke);
+      background: rgba(255,255,255,0.04);
+      color: #fff;
+      padding: 10px 14px;
+      border-radius: 999px;
+      cursor: pointer;
+      transition: transform 180ms ease, background 180ms ease;
+    }
+    .ghost-btn:hover{
+      background: rgba(255,255,255,0.10);
+      transform: translateY(-1px);
+    }
+
+    /* Scroll container: two full-screen sections */
+    .snap-root{
+      padding-top: 72px;
+      scroll-snap-type: y mandatory;
+    }
+    .snap-section{
+      height: calc(100vh - 72px);
+      scroll-snap-align: start;
+      padding: 14px 18px 18px;
+      background: radial-gradient(circle at 35% 20%, rgba(232,196,216,0.20) 0%, rgba(3,3,8,1) 55%),
+                  radial-gradient(circle at 70% 80%, rgba(160,196,255,0.18) 0%, rgba(3,3,8,1) 55%);
+    }
+
+    /* First screen layout */
+    .layout{
+      height: 100%;
+      display:flex;
+      gap: 14px;
+      transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .map-pane{
+      flex: 2;
+      min-width: 62%;
+      transition: flex 0.6s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .right-pane{
+      flex: 1;
+      min-width: 38%;
+      transition: flex 0.6s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .layout.detail-active .map-pane{ flex: 0.85; min-width: 32%; }
+    .layout.detail-active .right-pane{ flex: 2.15; min-width: 68%; }
+
+    .map-shell{
+      height: 100%;
+      border: 1px solid var(--stroke);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(16px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    #map-svg{ width: 100%; height: 100%; }
+
+    .map-hint{
+      position: absolute;
+      left: 18px;
+      bottom: 18px;
+      padding: 12px 14px;
+      border-radius: 16px;
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.12);
+      max-width: 340px;
+    }
+    .hint-title{ font-weight: 800; letter-spacing: 2px; color: var(--c-lavender); font-size: 0.72rem; margin-bottom: 4px; }
+    .hint-text{ font-size: 0.85rem; color: var(--text-dim); line-height: 1.35; }
+
+    .panel{
+      height: 100%;
+      border: 1px solid var(--stroke);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+      display:flex;
+      flex-direction: column;
+      transition: opacity 0.4s ease, transform 0.4s ease;
+    }
+
+    .hidden{ display:none; opacity: 0; }
+
+    .panel-header{
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      display:flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-title{ font-family: 'Playfair Display', serif; font-size: 1.15rem; }
+    .panel-subtitle{ margin-top: 2px; font-size: 0.85rem; color: var(--text-dim); }
+
+    .search-box{
+      display:flex;
+      gap: 8px;
+      align-items:center;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 999px;
+      padding: 8px 10px;
+    }
+    .search-box input{
+      width: 180px;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #fff;
+      font-size: 0.9rem;
+    }
+    .mini-btn{
+      width: 26px;
+      height: 26px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.05);
+      color:#fff;
+      cursor:pointer;
+    }
+
+    .table-wrap{ flex: 1; overflow: auto; }
+    .rank-table{ width: 100%; border-collapse: collapse; }
+    .rank-table thead th{
+      position: sticky;
+      top: 0;
+      background: rgba(3,3,8,0.65);
+      backdrop-filter: blur(10px);
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      font-size: 0.82rem;
+      text-align: left;
+      padding: 10px 12px;
+      color: rgba(255,255,255,0.85);
+    }
+    .rank-table tbody td{
+      padding: 10px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      font-size: 0.9rem;
+      color: rgba(255,255,255,0.90);
+    }
+    .rank-table tbody tr{
+      cursor: pointer;
+      transition: background 160ms ease;
+    }
+    .rank-table tbody tr:hover{ background: rgba(255,255,255,0.06); }
+    .rank-table tbody tr.active{
+      background: rgba(232,196,216,0.12);
+      outline: 1px solid rgba(232,196,216,0.25);
+    }
+
+    .col-rank{ width: 54px; }
+    .col-country{ width: auto; }
+    .col-medal{ width: 56px; text-align: center; }
+    .col-total{ width: 70px; text-align: right; }
+
+    .detail-cards{
+      padding: 14px 14px 0;
+      display:grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+    }
+    .stat-card{
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 16px;
+      background: rgba(255,255,255,0.05);
+      padding: 10px 12px;
+    }
+    .stat-card .stat-label{ font-size: 0.75rem; color: var(--text-dim); }
+    .stat-card .stat-value{ margin-top: 4px; font-size: 1.4rem; font-weight: 800; letter-spacing: 1px; }
+
+    .chart-container {
+      margin-top: 20px;
+      padding: 20px;
+      background: var(--glass);
+      border-radius: 15px;
+      max-height: 600px;
+      overflow-y: auto;
+      overflow-x: auto;
+      transition: max-height 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .layout.detail-active .chart-container { max-height: 700px; }
+    .chart-container::-webkit-scrollbar { width: 8px; height: 8px; }
+    .chart-container::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 4px; }
+    .chart-container::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 4px; }
+    .chart-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; }
+    .chart-title { font-size: 1rem; color: var(--c-lavender); font-weight: 600; letter-spacing: 0.5px; margin: 0; }
+    .chart-legend { display: flex; gap: 20px; align-items: center; }
+    .legend-item { display: flex; align-items: center; gap: 6px; }
+    .legend-dot { width: 10px; height: 10px; border-radius: 50%; border: 1px solid #fff; flex-shrink: 0; }
+    .legend-dot.gold { background: #FFD700; }
+    .legend-dot.silver { background: #C0C0C0; }
+    .legend-dot.bronze { background: #CD7F32; }
+    .legend-label { font-size: 0.7rem; color: rgba(255,255,255,0.75); white-space: nowrap; }
+    #timeline-svg-wrapper { min-height: 300px; min-width: auto; overflow: visible; }
+    .timeline-dot { cursor: pointer; transition: r 0.2s; stroke: #fff; stroke-width: 1px; }
+    .timeline-dot:hover { r: 8px; }
+
+    /* Map styles */
+    .country{ stroke: rgba(255,255,255,0.12); stroke-width: 0.6; }
+    .country.no-data{ fill: rgba(220,208,255,0.10); }
+    .country.active{ stroke: rgba(255,255,255,0.9); stroke-width: 1.6; filter: drop-shadow(0 0 6px rgba(232,196,216,0.55)); }
+    .country.hover{ stroke: rgba(255,255,255,0.55); stroke-width: 1.2; }
+
+    .tooltip{
+      position: fixed;
+      pointer-events: none;
+      z-index: 9999;
+      background: rgba(10,10,20,0.95);
+      border: 1px solid rgba(255,255,255,0.25);
+      border-radius: 10px;
+      padding: 10px 14px;
+      color: #fff;
+      font-size: 0.82rem;
+      backdrop-filter: blur(10px);
+      opacity: 0;
+      transition: opacity 100ms ease;
+      max-width: 300px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+    }
+    .tooltip.show{ opacity: 1; }
+    .tooltip .t-title{ font-weight: 700; letter-spacing: 0.3px; margin-bottom: 4px; color: var(--c-lavender); }
+    .tooltip .t-sub{ color: rgba(255,255,255,0.9); font-size: 0.8rem; }
+
+    /* ========== SECOND SCREEN (Age) ========== */
+    .age-shell{
+      height: 100%;
+      display: grid;
+      grid-template-columns: 1.6fr 1fr;
+      gap: 14px;
+    }
+
+    .age-left, .age-right{
+      border: 1px solid var(--stroke);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.04);
+      backdrop-filter: blur(16px);
+      overflow: hidden;
+      position: relative;
+    }
+
+    .age-left{ display:flex; flex-direction: column; }
+
+    .age-head{
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      display:flex;
+      align-items:flex-end;
+      justify-content: space-between;
+      gap: 12px;
+    }
+    .age-head .title{ font-family: 'Playfair Display', serif; font-size: 1.15rem; }
+    .age-head .sub{ margin-top: 2px; font-size: 0.85rem; color: var(--text-dim); }
+
+    .age-legend{ display:flex; gap: 10px; align-items:center; flex-wrap: wrap; justify-content: flex-end; }
+    .pill{
+      display:flex;
+      align-items:center;
+      gap: 8px;
+      padding: 6px 10px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      font-size: 0.75rem;
+      color: rgba(255,255,255,0.85);
+      white-space: nowrap;
+    }
+    .pill .dot{ width: 10px; height: 10px; border-radius: 999px; border: 1px solid rgba(255,255,255,0.35); }
+
+    #violin-wrap{ flex: 1; padding: 10px 10px 14px; }
+    #violin-svg{ width: 100%; height: 100%; }
+
+    .ybtn{ cursor: pointer; transition: opacity 160ms ease; }
+    .ybtn-bg{ fill: rgba(255,255,255,0.05); stroke: rgba(255,255,255,0.12); }
+    .ybtn.active .ybtn-bg{ fill: rgba(220,208,255,0.14); stroke: rgba(220,208,255,0.35); }
+    .ybtn text{ font-size: 12px; fill: rgba(255,255,255,0.86); }
+    .ybtn:hover{ opacity: 0.95; }
+
+    .qline{ stroke: rgba(255,255,255,0.90); stroke-width: 2; stroke-linecap: round; cursor: help; pointer-events: all; }
+    .qline:hover{ stroke: #fff; stroke-width: 2.5; }
+    .qline.dim{ stroke: rgba(255,255,255,0.55); stroke-width: 1.0; }
+
+    .age-right{ display:flex; flex-direction: column; }
+    .age-right .panel-top{
+      padding: 16px 16px 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.10);
+      display:flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 10px;
+    }
+    .age-right .panel-top .rt-title{ font-family: 'Playfair Display', serif; font-size: 1.05rem; }
+    .age-right .panel-top .rt-sub{ margin-top: 2px; font-size: 0.82rem; color: var(--text-dim); }
+    .age-right .content{
+      flex: 1;
+      overflow-y: auto;
+      overflow-x: hidden;
+      padding: 12px 12px 16px;
+      display:flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .age-right .content::-webkit-scrollbar { width: 6px; }
+    .age-right .content::-webkit-scrollbar-track { background: rgba(255,255,255,0.05); border-radius: 3px; }
+    .age-right .content::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    .mini-card{
+      border: 1px solid rgba(255,255,255,0.10);
+      border-radius: 18px;
+      background: rgba(255,255,255,0.05);
+      padding: 12px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }
+    .mini-card h3{ margin: 0 0 8px; font-size: 0.95rem; font-weight: 700; letter-spacing: 0.2px; color: var(--c-lavender); }
+    .mini-card p{ margin: 0 0 10px; font-size: 0.82rem; color: rgba(255,255,255,0.72); line-height: 1.35; }
+    #boxplot-svg{ width: 100%; min-height: 200px; display:block; }
+    #topnations-svg{ width: 100%; min-height: 180px; display:block; }
+
+    /* scroll cue */
+    .scroll-cue{
+      position: fixed;
+      left: 50%;
+      bottom: 18px;
+      transform: translateX(-50%);
+      z-index: 40;
+      display:flex;
+      flex-direction: column;
+      align-items:center;
+      gap: 6px;
+      pointer-events: none;
+      opacity: 0.9;
+    }
+    .scroll-cue .txt{ font-size: 0.78rem; color: rgba(255,255,255,0.72); letter-spacing: 0.8px; }
+    .scroll-cue .chev{
+      width: 24px;
+      height: 24px;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+      display:grid;
+      place-items:center;
+      background: rgba(255,255,255,0.05);
+      animation: bob 1.4s ease-in-out infinite;
+    }
+    @keyframes bob{ 0%,100%{ transform: translateY(0); } 50%{ transform: translateY(6px); } }
+
+  </style>
+</head>
+
+<body class="page-enter">
+  <script>
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        document.body.classList.add('page-enter-active');
+        document.body.classList.remove('page-enter');
+      });
+    });
+  </script>
+
+  <!-- ==================== 热力图部分 ==================== -->
+  <section id="schedule-section">
+    <div class="schedule-header">
+      <div class="schedule-label">PARIS 2024</div>
+      <h1 class="schedule-title">Events Schedule</h1>
+      <a href="../index.html" class="ghost-btn back-btn">← Back</a>
+    </div>
+
+    <div class="scroll-hint-schedule" id="scroll-hint-schedule">
+      <div class="scroll-hint-text">Scroll</div>
+      <div class="scroll-mouse">
+        <div class="scroll-wheel"></div>
+      </div>
+      <div class="scroll-arrow-icon"></div>
+    </div>
+
+    <div class="schedule-content">
+      <div class="heatmap-container">
+        <div class="heatmap-header">
+          <h2 class="heatmap-title">Competition Schedule Heatmap</h2>
+          <p class="heatmap-subtitle">Medal events by sport and date (July 24 - August 11, 2024)</p>
+        </div>
+        <div class="heatmap-scroll-wrapper">
+          <svg id="heatmap-svg"></svg>
+        </div>
+        <div class="heatmap-legend">
+          <span>Low</span>
+          <div class="legend-gradient"></div>
+          <span>High</span>
+          <span style="margin-left: 12px; color: var(--c-gold); font-size: 0.65rem;">● Medal Event</span>
+        </div>
+      </div>
+
+      <div class="info-panel">
+        <h3 class="info-title">Olympic Overview</h3>
+        <div class="stat-grid">
+          <div class="stat-box">
+            <div class="stat-label">Events</div>
+            <div class="stat-value" id="total-events">329</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Golds</div>
+            <div class="stat-value gold" id="total-golds">329</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Sports</div>
+            <div class="stat-value" id="total-sports">32</div>
+          </div>
+          <div class="stat-box">
+            <div class="stat-label">Days</div>
+            <div class="stat-value" id="total-days">19</div>
+          </div>
+        </div>
+
+        <div class="gold-days-section">
+          <div class="section-header">🥇 Peak Gold Days</div>
+          <div id="gold-days-list"></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="schedule-tooltip" id="schedule-tooltip"></div>
+
+  <!-- ==================== 奖牌榜和山峰图部分（队友原版结构） ==================== -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-kicker">PARIS 2024</div>
+      <div class="brand-title">Medals Map & Leaderboard</div>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="back-to-index" class="ghost-btn">← Back</button>
+    </div>
+  </header>
+
+  <!-- scroll cue -->
+  <div class="scroll-cue" id="scroll-cue">
+    <div class="txt">Scroll to explore athlete ages</div>
+    <div class="chev">⌄</div>
+  </div>
+
+  <div class="snap-root" id="snap-root">
+    <!-- ============ SECTION 1: MAP & LEADERBOARD ============ -->
+    <section class="snap-section" id="screen-map">
+      <main class="layout">
+        <!-- Left: Map -->
+        <section class="map-pane">
+          <div class="map-shell">
+            <svg id="map-svg"></svg>
+
+            <div class="map-hint">
+              <div class="hint-title">Tip</div>
+              <div class="hint-text">Click a country on the map or in the ranking to highlight it.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Right: Leaderboard / Details -->
+        <aside class="right-pane">
+          <!-- Leaderboard view -->
+          <div id="view-board" class="panel">
+            <div class="panel-header">
+              <div>
+                <div class="panel-title">Leaderboard</div>
+                <div class="panel-subtitle">Sorted by total medals</div>
+              </div>
+
+              <div class="search-box">
+                <input id="country-search" type="text" placeholder="Search country..." />
+                <button id="clear-search" class="mini-btn">×</button>
+              </div>
+            </div>
+
+            <div class="table-wrap">
+              <table class="rank-table">
+                <thead>
+                  <tr>
+                    <th class="col-rank">#</th>
+                    <th class="col-country">Country</th>
+                    <th class="col-medal">🥇</th>
+                    <th class="col-medal">🥈</th>
+                    <th class="col-medal">🥉</th>
+                    <th class="col-total">Total</th>
+                  </tr>
+                </thead>
+                <tbody id="rank-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- Country detail view -->
+          <div id="view-detail" class="panel hidden">
+            <div class="panel-header">
+              <div>
+                <div id="detail-title" class="panel-title">Country</div>
+                <div id="detail-subtitle" class="panel-subtitle">Medals summary</div>
+              </div>
+
+              <button id="back-to-board" class="ghost-btn">← Back to leaderboard</button>
+            </div>
+
+            <div class="detail-cards">
+              <div class="stat-card">
+                <div class="stat-label">Gold</div>
+                <div id="stat-gold" class="stat-value">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Silver</div>
+                <div id="stat-silver" class="stat-value">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Bronze</div>
+                <div id="stat-bronze" class="stat-value">0</div>
+              </div>
+              <div class="stat-card">
+                <div class="stat-label">Total</div>
+                <div id="stat-total" class="stat-value">0</div>
+              </div>
+            </div>
+
+            <div id="medal-timeline-container" class="chart-container">
+              <div class="chart-header">
+                <h3 class="chart-title">Medal Timeline by Discipline</h3>
+                <div class="chart-legend">
+                  <div class="legend-item">
+                    <div class="legend-dot gold"></div>
+                    <span class="legend-label">Gold</span>
+                  </div>
+                  <div class="legend-item">
+                    <div class="legend-dot silver"></div>
+                    <span class="legend-label">Silver</span>
+                  </div>
+                  <div class="legend-item">
+                    <div class="legend-dot bronze"></div>
+                    <span class="legend-label">Bronze</span>
+                  </div>
+                </div>
+              </div>
+              <div id="timeline-svg-wrapper"></div>
+            </div>
+          </div>
+        </aside>
+      </main>
+    </section>
+
+    <!-- ============ SECTION 2: AGE VISUALIZATION ============ -->
+    <section class="snap-section" id="screen-age">
+      <div class="age-shell">
+        <!-- Left: Split violin -->
+        <div class="age-left">
+          <div class="age-head">
+            <div>
+              <div class="title">Athlete Age Landscape</div>
+              <div class="sub">Split violin • Participants vs Medallists • Hover for counts • Click a sport to explore details</div>
+            </div>
+            <div class="age-legend">
+              <div class="pill"><span class="dot" style="background: var(--female-a)"></span>Female Participants</div>
+              <div class="pill"><span class="dot" style="background: var(--female-b)"></span>Female Medallists</div>
+              <div class="pill"><span class="dot" style="background: var(--male-a)"></span>Male Participants</div>
+              <div class="pill"><span class="dot" style="background: var(--male-b)"></span>Male Medallists</div>
+              <div class="pill"><span class="dot" style="background: rgba(255,255,255,0.85); width: 2px; height: 12px; border-radius: 1px;"></span>Quartiles (Q1/Med/Q3)</div>
+            </div>
+          </div>
+
+          <div id="violin-wrap">
+            <svg id="violin-svg"></svg>
+          </div>
+        </div>
+
+        <!-- Right: detail charts -->
+        <div class="age-right">
+          <div class="panel-top">
+            <div>
+              <div class="rt-title" id="age-right-title">Selected sport: (loading…)</div>
+              <div class="rt-sub" id="age-right-sub">Tip: click a sport label on the left • default is the first sport</div>
+            </div>
+            <button class="ghost-btn" id="age-back-to-map">↑ Back to map</button>
+          </div>
+
+          <div class="content">
+            <div class="mini-card">
+              <h3>Sub-event age distribution (Box plot)</h3>
+              <p>Within the selected sport, compare sub-events: who skews younger vs older (medallists).</p>
+              <svg id="boxplot-svg"></svg>
+            </div>
+
+            <div class="mini-card">
+              <h3>Top nations (Medals in this sport)</h3>
+              <p>Which countries dominate this sport? (computed from medals.csv)</p>
+              <svg id="topnations-svg"></svg>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="../js/schedule.js"></script>
+  <script src="../js/medals.js"></script>
+  <script src="../js/medals_age.js"></script>
+  
+  <script>
+    // 控制topbar和scroll-cue的显示
+    const topbar = document.querySelector('.topbar');
+    const scrollCue = document.getElementById('scroll-cue');
+    const scheduleSection = document.getElementById('schedule-section');
+    const snapRoot = document.getElementById('snap-root');
+    
+    // 监听滚动，当滚动超过热力图section时显示topbar
+    window.addEventListener('scroll', () => {
+      const scheduleBottom = scheduleSection.offsetTop + scheduleSection.offsetHeight;
+      const scrollY = window.scrollY;
+      
+      if (scrollY >= scheduleBottom - 100) {
+        topbar.classList.add('visible');
+      } else {
+        topbar.classList.remove('visible');
+      }
+    });
+    
+    // 隐藏热力图的滚动提示当滚动后
+    const scheduleScrollHint = document.getElementById('scroll-hint-schedule');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 100) {
+        scheduleScrollHint.classList.add('hide');
+      } else {
+        scheduleScrollHint.classList.remove('hide');
+      }
+    });
+  </script>
+</body>
+</html>
